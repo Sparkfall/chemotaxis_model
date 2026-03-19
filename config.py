@@ -84,5 +84,5 @@ ENHANCED_KD_FACTOR = 0.2      # 增强模式下K_D的缩放因子（1/5）
 CONVECTION_VELOCITY = 1e-5    # 自然对流速度量级，单位 m/s
 
 # === 记录参数 ===
-RECORD_INTERVAL = 10.0        # 数据记录间隔，单位 s
+RECORD_INTERVAL = 1.0        # 数据记录间隔，单位 s
 SUBSTRATE_PROXIMITY_RADIUS = 200e-6  # 底物附近区域半径，单位 m（200 μm）
