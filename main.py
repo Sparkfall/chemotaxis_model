@@ -156,8 +156,9 @@ def run_simulation(chemotaxis_mode="wild_type", gravity_on=True,
             density_near_substrate.append(density)
             total_consumption.append(total_consumed)
             
-            # 打印进度
-            if step % (record_steps * 10) == 0:
+            # 打印进度（每10个记录间隔打印一次，或至少每10秒打印一次）
+            print_interval_steps = max(record_steps * 10, int(10.0 / dt))  # 至少每10秒打印一次
+            if step % print_interval_steps == 0:
                 print(f"  t = {t:.0f} s: density = {density:.2e} /μm³, "
                       f"consumed = {total_consumed:.2e} mol")
     
