@@ -103,6 +103,43 @@ def trilinear_interpolate(field, position, domain_size):
     return c
 
 
+def get_concentration_at_position(field, position, domain_size):
+    """
+    从三维网格场中获取指定位置的浓度值。
+    
+    优先使用最近邻插值（对于网格点），否则使用三线性插值。
+    
+    参数：
+        field: 三维numpy数组，浓度场
+        position: [x, y, z]坐标（单位m）
+        domain_size: 仿真域边长（单位m）
+    
+    返回：
+        该位置的浓度值
+    """
+    grid_res = field.shape[0]
+    grid_spacing = domain_size / (grid_res - 1)
+    
+    # 将物理坐标转换为网格坐标
+    x, y, z = position
+    gx = x / grid_spacing
+    gy = y / grid_spacing
+    gz = z / grid_spacing
+    
+    # 检查是否正好在网格点上（允许小误差）
+    ix = round(gx)
+    iy = round(gy)
+    iz = round(gz)
+    
+    if (abs(gx - ix) < 1e-10 and abs(gy - iy) < 1e-10 and abs(gz - iz) < 1e-10 and
+        0 <= ix < grid_res and 0 <= iy < grid_res and 0 <= iz < grid_res):
+        # 正好在网格点上，直接返回值
+        return field[ix, iy, iz]
+    
+    # 否则使用三线性插值
+    return trilinear_interpolate(field, position, domain_size)
+
+
 def position_to_grid_index(position, domain_size, grid_resolution):
     """
     将物理坐标转换为网格索引。

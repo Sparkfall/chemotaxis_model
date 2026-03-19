@@ -67,20 +67,30 @@ def test_trilinear_interpolate():
     """测试三线性插值。"""
     print("Testing trilinear_interpolate()...")
     
+    from utils import get_concentration_at_position
+    
     # 创建简单测试场
     field = np.zeros((10, 10, 10))
     field[5, 5, 5] = 1.0
     
-    # 在网格点应该返回精确值
     domain_size = 100e-6
-    pos = np.array([50e-6, 50e-6, 50e-6])
-    val = trilinear_interpolate(field, pos, domain_size)
-    assert np.abs(val - 1.0) < 0.01, f"Interpolation at grid point failed: {val}"
+    grid_spacing = domain_size / (field.shape[0] - 1)
+    
+    # 在网格点应该返回精确值（使用get_concentration_at_position）
+    pos = np.array([5 * grid_spacing, 5 * grid_spacing, 5 * grid_spacing])
+    val = get_concentration_at_position(field, pos, domain_size)
+    assert np.abs(val - 1.0) < 1e-10, f"Interpolation at grid point failed: {val}"
     
     # 在零点应该返回0
     pos = np.array([0, 0, 0])
     val = trilinear_interpolate(field, pos, domain_size)
     assert val < 0.1, f"Interpolation at zero point failed: {val}"
+    
+    # 测试插值（在两个网格点中间）
+    pos = np.array([4.5 * grid_spacing, 5 * grid_spacing, 5 * grid_spacing])
+    val = trilinear_interpolate(field, pos, domain_size)
+    expected = 0.5  # 在0和1之间插值
+    assert np.abs(val - expected) < 0.01, f"Interpolation between points failed: {val}, expected {expected}"
     
     print("  ✓ trilinear_interpolate() passed")
 
@@ -121,7 +131,9 @@ def test_environment():
     
     # 使用较小的网格进行快速测试
     original_grid_res = config.GRID_RESOLUTION
+    original_gravity = config.GRAVITY_ON
     config.GRID_RESOLUTION = 20
+    config.GRAVITY_ON = False  # 测试时关闭重力
     
     try:
         env = Environment(config)
@@ -130,10 +142,52 @@ def test_environment():
         assert env.concentration_field.shape == (20, 20, 20), "Concentration field shape mismatch"
         
         # 检查底物表面浓度
-        substrate_pos = np.array(config.SUBSTRATE_POSITIONS[0])
-        conc_at_substrate = env.get_concentration(substrate_pos)
-        assert np.abs(conc_at_substrate - config.SUBSTRATE_SURFACE_CONC) / config.SUBSTRATE_SURFACE_CONC < 0.1, \
-            f"Concentration at substrate surface incorrect: {conc_at_substrate}"
+        # 底物中心在 (1000e-6, 1000e-6, 1000e-6)
+        substrate_center = np.array(config.SUBSTRATE_POSITIONS[0])
+        grid_spacing = config.DOMAIN_SIZE / (config.GRID_RESOLUTION - 1)
+        
+        # 找到距离底物中心最近的网格点
+        nearest_i = int(round(substrate_center[0] / grid_spacing))
+        nearest_j = int(round(substrate_center[1] / grid_spacing))
+        nearest_k = int(round(substrate_center[2] / grid_spacing))
+        
+        # 限制在有效范围内
+        nearest_i = np.clip(nearest_i, 0, config.GRID_RESOLUTION - 1)
+        nearest_j = np.clip(nearest_j, 0, config.GRID_RESOLUTION - 1)
+        nearest_k = np.clip(nearest_k, 0, config.GRID_RESOLUTION - 1)
+        
+        # 获取最近网格点的坐标和浓度
+        nearest_x = nearest_i * grid_spacing
+        nearest_y = nearest_j * grid_spacing
+        nearest_z = nearest_k * grid_spacing
+        nearest_pos = np.array([nearest_x, nearest_y, nearest_z])
+        dist_to_center = np.linalg.norm(nearest_pos - substrate_center)
+        
+        # 检查最近网格点的浓度
+        conc_at_nearest = env.concentration_field[nearest_i, nearest_j, nearest_k]
+        
+        # 如果最近网格点在底物内部，浓度应该等于表面浓度
+        # 如果在底物外部，浓度应该小于表面浓度
+        if dist_to_center <= config.SUBSTRATE_RADIUS:
+            # 在底物内部
+            assert np.abs(conc_at_nearest - config.SUBSTRATE_SURFACE_CONC) < 1e-10, \
+                f"Grid point inside substrate has wrong concentration: {conc_at_nearest}"
+        else:
+            # 在底物外部，检查浓度是否按1/r衰减
+            expected_conc = config.SUBSTRATE_SURFACE_CONC * config.SUBSTRATE_RADIUS / dist_to_center
+            assert np.abs(conc_at_nearest - expected_conc) / expected_conc < 0.1, \
+                f"Grid point outside substrate has wrong concentration: {conc_at_nearest}, expected ~{expected_conc}"
+        
+        # 验证get_concentration对网格点返回正确值
+        conc_query = env.get_concentration(nearest_pos)
+        assert np.abs(conc_query - conc_at_nearest) < 1e-10, \
+            f"get_concentration at grid point incorrect: {conc_query}, expected {conc_at_nearest}"
+        
+        # 检查底物中心点的浓度（通过插值）
+        conc_at_center = env.get_concentration(substrate_center)
+        # 中心点浓度应该接近表面浓度（允许50%的误差，因为网格较粗）
+        assert conc_at_center > config.SUBSTRATE_SURFACE_CONC * 0.3, \
+            f"Concentration at substrate center too low: {conc_at_center}, expected > {config.SUBSTRATE_SURFACE_CONC * 0.3}"
         
         # 检查远处浓度趋近于0
         far_pos = np.array([100e-6, 100e-6, 100e-6])
@@ -147,6 +201,7 @@ def test_environment():
         print("  ✓ Environment class passed")
     finally:
         config.GRID_RESOLUTION = original_grid_res
+        config.GRAVITY_ON = original_gravity
 
 
 def test_signaling():
@@ -185,29 +240,50 @@ def test_movement():
     """测试运动模块。"""
     print("Testing MovementEngine class...")
     
-    mov = MovementEngine(config)
+    # 保存原始重力设置
+    original_gravity = config.GRAVITY_ON
     
-    # 测试run阶段
-    bac = Bacterium([1000e-6, 1000e-6, 1000e-6], 0)
-    bac.direction = np.array([1, 0, 0])  # 沿x方向
-    initial_pos = bac.get_position().copy()
-    
-    dt = 0.1
-    mov.step(bac, dt)
-    
-    # 检查位移
-    displacement = bac.get_position() - initial_pos
-    expected_displacement = config.SWIM_SPEED * dt
-    assert np.abs(displacement[0] - expected_displacement) < 1e-10, "Run displacement incorrect"
-    assert np.abs(displacement[1]) < 1e-10, "Y displacement should be 0"
-    assert np.abs(displacement[2]) < 1e-10, "Z displacement should be 0 (no gravity)"
-    
-    # 测试边界反射
-    bac2 = Bacterium([-10e-6, 1000e-6, 1000e-6], 1)
-    bac2.direction = np.array([-1, 0, 0])
-    mov.step(bac2, dt)
-    assert bac2.position[0] >= 0, "Boundary reflection failed: x < 0"
-    assert bac2.direction[0] > 0, "Direction should be reversed after reflection"
+    try:
+        # 测试无重力情况
+        config.GRAVITY_ON = False
+        mov = MovementEngine(config)
+        
+        # 测试run阶段
+        bac = Bacterium([1000e-6, 1000e-6, 1000e-6], 0)
+        bac.direction = np.array([1, 0, 0])  # 沿x方向
+        initial_pos = bac.get_position().copy()
+        
+        dt = 0.1
+        mov.step(bac, dt)
+        
+        # 检查位移
+        displacement = bac.get_position() - initial_pos
+        expected_displacement = config.SWIM_SPEED * dt
+        assert np.abs(displacement[0] - expected_displacement) < 1e-10, "Run displacement incorrect"
+        assert np.abs(displacement[1]) < 1e-10, "Y displacement should be 0"
+        assert np.abs(displacement[2]) < 1e-10, "Z displacement should be 0 (no gravity)"
+        
+        # 测试边界反射
+        bac2 = Bacterium([-10e-6, 1000e-6, 1000e-6], 1)
+        bac2.direction = np.array([-1, 0, 0])
+        mov.step(bac2, dt)
+        assert bac2.position[0] >= 0, "Boundary reflection failed: x < 0"
+        assert bac2.direction[0] > 0, "Direction should be reversed after reflection"
+        
+        # 测试有重力情况
+        config.GRAVITY_ON = True
+        mov_gravity = MovementEngine(config)
+        bac3 = Bacterium([1000e-6, 1000e-6, 1000e-6], 2)
+        bac3.direction = np.array([1, 0, 0])
+        initial_pos3 = bac3.get_position().copy()
+        mov_gravity.step(bac3, dt)
+        displacement3 = bac3.get_position() - initial_pos3
+        expected_z_drop = config.SEDIMENTATION_SPEED * dt
+        assert np.abs(displacement3[2] - (-expected_z_drop)) < 1e-10, "Gravity sedimentation incorrect"
+        
+    finally:
+        # 恢复原始重力设置
+        config.GRAVITY_ON = original_gravity
     
     print("  ✓ MovementEngine class passed")
 

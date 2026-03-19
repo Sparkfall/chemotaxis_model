@@ -15,7 +15,7 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
 import config
-from utils import trilinear_interpolate, position_to_grid_index
+from utils import trilinear_interpolate, position_to_grid_index, get_concentration_at_position
 
 
 class Environment:
@@ -98,7 +98,7 @@ class Environment:
         """
         查询指定位置的浓度。
         
-        使用三线性插值从网格中查询浓度值。
+        使用最近邻或三线性插值从网格中查询浓度值。
         
         参数：
             position: [x, y, z]坐标（单位m）
@@ -106,9 +106,9 @@ class Environment:
         返回：
             该位置的引诱物浓度（单位M）
         """
-        return trilinear_interpolate(
-            self.concentration_field, 
-            position, 
+        return get_concentration_at_position(
+            self.concentration_field,
+            position,
             self.domain_size
         )
 

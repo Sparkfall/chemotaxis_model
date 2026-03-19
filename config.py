@@ -12,7 +12,7 @@ import numpy as np
 DOMAIN_SIZE = 2000e-6        # 仿真域边长，单位 m（2000 μm）
 GRID_RESOLUTION = 100        # 网格分辨率（100×100×100）
 DT = 0.1                     # 时间步长，单位 s
-TOTAL_TIME = 3600            # 总仿真时间，单位 s（1小时）
+TOTAL_TIME = 30            # 总仿真时间，单位 s（1小时）
 
 # === 细菌物理参数 ===
 SWIM_SPEED = 25e-6           # 游速，单位 m/s（25 μm/s）
